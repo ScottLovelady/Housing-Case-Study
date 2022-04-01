@@ -1,0 +1,200 @@
+---
+title: "Housing Case Study"
+author: "Scott Lovelady"
+date: "11/6/2021"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+
+## Load data and packages
+
+```{r}
+library(tidyverse)
+d <- read_csv("LAHomes.csv")
+
+glimpse(d)
+
+summary(d)
+
+```
+
+Data dictionary:
+- city: name of city
+- type:  type of dwelling, SFR or Condo/Twh
+- bed:  number of bedrooms
+- bath: number of baths
+- garage: size of garage (number of cars)
+- sqft: size of dwelling
+- pool:  indicator for pool
+- spa: indicator for spa
+- price: sales price
+
+## Data Cleaning
+
+Missing data in the following fields:  spa, pool, type, and garage. Issues:
+
+1. `spa`. All missing.
+
+```{r}
+table(d$spa, useNA = "always") 
+```
+
+2. `pool`. Pool has 1448 NAs.  NA probably means no pool?  Hard to know for sure.
+
+```{r}
+table(d$pool, useNA = "always")
+```
+
+3. `type`. Type has 39 NAs, which may be missing data.
+
+```{r}
+table(d$type, useNA = "always")
+```
+
+4. `garage`. Garage has 625 NAs, which probably means no garage. 
+
+```{r}
+table(d$garage, useNA = "always")
+
+```
+
+# Recoding
+1. Remove `spa`. 
+2. Recode NAs in `pool` as "N," to be consistent with "Y." Make into a factor.
+3. Eliminate the empty rows of `type` when using that predictor in a model; leave the NAs alone (because `lm()` will automatically ignore NAs).
+4. Recode empty garage as "0"---a character variable---and make it into a factor variable.
+5. Make city and type into factors.
+
+```{r}
+
+d <- d %>% 
+  dplyr::select(-spa) %>% 
+  mutate(pool = ifelse(is.na(pool), "N", "Y") %>% factor,
+        garage = ifelse(is.na(garage), "0", garage) %>% factor,
+        city = factor(city),
+        type = factor(type))
+
+
+glimpse(d)
+summary(d)
+```
+
+
+## Log transformation of price
+
+
+```{r}
+
+ggplot(d, aes(sqft, price)) +
+  geom_point() +
+  theme_minimal() +
+  stat_smooth(method="lm", se = F) +
+  labs(title = "price ~ sqft")
+
+```
+
+
+
+```{r}
+
+ggplot(d, aes(sqft, price)) +
+  geom_point() +
+  theme_minimal() +
+  facet_wrap(~city) +
+  stat_smooth(method="lm", se = F) +
+  labs(title = "price ~ sqft, varying by city")
+
+```
+
+
+
+```{r}
+
+ggplot(d, aes(sqft, log(price))) +
+  geom_point() +
+  theme_minimal() +
+  stat_smooth(method="lm", se = F) +
+  labs(title = "log(price) ~ sqft")
+
+```
+
+
+Plot of log `price` against log `sqft`, with a least squares summary line (log-log model). 
+
+```{r}
+
+ggplot(d, aes(log(sqft), log(price))) +
+  geom_point() +
+  theme_minimal() +
+  stat_smooth(method="lm", se = F) +
+  labs(title = "log(price) ~ log(sqft)")
+
+```
+
+> The log(price) ~ log(sqft) model fits the data much better than the log(price) ~ sqft model or the price ~ sqft model.
+
+## Log-log Simple Regression Model
+
+
+```{r}
+lm(log(price) ~ log(sqft), d) %>% summary
+
+```
+
+> The coefficient for log(sqft) is 1.442. This means that for a 1 unit increase in log(sqft), there is a 1.442 unit increase in log(price).
+
+## Log Transformations Proof of Improvement in Accuracy
+
+
+```{r}
+model <- lm(price ~ sqft, d)
+log_model <- lm(log(price) ~ log(sqft), d)
+
+#r^2 for each model and log model
+summary(model)$r.square
+summary(log_model)$r.square
+
+#rmse calculation
+rmse <- function(actual, fitted){
+  sqrt(mean((actual - fitted)^2))
+}
+rmse(actual = d$price, fitted = predict(model))
+rmse(d$price, exp(fitted(log_model)))
+```
+
+
+## Analyze by City
+
+Model of `log(price)` with an interaction between `log(sqft)` and `city`.  
+
+```{r}
+# Regression
+lm(log(price) ~ log(sqft) * city, d) %>% summary
+
+```
+
+```{r}
+# Plot of interaction
+ggplot(d, aes(log(sqft), log(price)))+
+  geom_jitter() +
+  geom_smooth(method = "lm", se = F) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 10)) +
+  labs("price ~ sqft * city", x = "city") +
+  facet_wrap(~city)
+
+
+```
+
+> The plot shows the relationship between log(sqft) and log(price) for each city. The regression output shows that there is an interaction between city, square footage, and price. This is evidenced by the differing coefficients output by the regression model for each combination of city and log(sqft). It should be noted though that Long Beach's difference is not statistically significant.
+
+
+## Recommendation
+
+> Answer: PacDev should focus their business in the city of Beverly Hills. We used a linear regression model to study the relationship between sale price, square footage, and city. We used the natural logs of sale price and square footage to allow our linear model to better fit the right-skewed data. The better fit was evidenced by the decreased RMSE and increased r^2 of our log-transformed model versus the non-log transformed model. The regression equation shows that Westwood, Santa Monica, and Long Beach have lower returns to increased square footage than Beverly Hills. Beverly Hills offers a much larger increase in sale price for an increase in square footage ($1,869 per square foot vs. $747 for the next highest city). 
